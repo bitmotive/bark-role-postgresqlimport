@@ -15,29 +15,29 @@ prompted at runtime.
 Role Variables
 --------------
 
-**POSTGRESQLEXPORT_DB_HOST**:
+**POSTGRESQLIMPORT_DB_HOST**:
 
 The hostname or IP address of the PostgreSQL server.
 
-**POSTGRESQLEXPORT_DB_PORT**:
+**POSTGRESQLIMPORT_DB_PORT**:
 
 The port number on which the PostgreSQL server is listening (default: 5432).
 
-**POSTGRESQLEXPORT_DB_NAME**:
+**POSTGRESQLIMPORT_DB_NAME**:
 
 The name of the database to export.
 
-**POSTGRESQLEXPORT_DB_USER**:
+**POSTGRESQLIMPORT_DB_USER**:
 
 The PostgreSQL who will connect to the databse.
 
-**POSTGRESQLEXPORT_DB_USER_PASSWORD**:
+**POSTGRESQLIMPORT_DB_USER_PASSWORD**:
 
 The password of the PostgreSQL user.
 
-**POSTGRESQLEXPORT_DESTINATION_FOLDER**:
+**POSTGRESQLIMPORT_DB_TMP_FILEPATH**:
 
-Where to place the exported SQL file on the machine running Ansible.
+The filepath on the local system to be imported to the remote system.
 
 
 Dependencies
