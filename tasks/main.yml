@@ -160,7 +160,7 @@
 - name: Import the database dump into "{{ POSTGRESQLIMPORT_DB_NAME }}"
   shell:
     cmd: >
-      PGPASSWORD='{{ POSTGRESQLEXPORT_DB_USER_PASSWORD }}' psql 
+      psql 
       -U postgres 
       -d "{{ POSTGRESQLIMPORT_DB_NAME }}"
       -f "/tmp/{{ POSTGRESQLIMPORT_DB_NAME }}.sql"
