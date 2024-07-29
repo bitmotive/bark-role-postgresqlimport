@@ -1,0 +1,181 @@
+---
+# ROLE: POSTGRESIMPORT
+#
+# DESCRIPTION:
+# This role will import a PostgreSQL database file generated from pg_dump
+
+
+###############################################################################
+################### VARIABLE INITIALIZATION & TASK SETUP ######################
+###############################################################################
+
+
+# POSTGRESQLIMPORT_DB_NAME
+# The new PostgreSQL database to be created. Will drop existing and replace if exists.
+- name: POSTGRESQLIMPORT_DB_NAME set fact from env if possible
+  set_fact:
+    POSTGRESQLIMPORT_DB_NAME: "{{ lookup('env', 'POSTGRESQLIMPORT_DB_NAME') | default('') | trim }}"
+  when: lookup('env', 'POSTGRESQLIMPORT_DB_NAME') | default('', true) | trim != ''
+- name: POSTGRESQLIMPORT_DB_NAME prompt user input if unset
+  pause:
+    prompt: "SET POSTGRESQLIMPORT_DB_NAME"
+    echo: yes
+  register: input
+  when: POSTGRESQLIMPORT_DB_NAME is not defined
+- name: Set POSTGRESQLIMPORT_DB_NAME fact from user input
+  set_fact:
+    POSTGRESQLIMPORT_DB_NAME: "{{ input.user_input | default('') | trim }}"
+  when: POSTGRESQLIMPORT_DB_NAME is not defined
+
+# POSTGRESQLIMPORT_DB_USER
+# The PostgreSQL username to be created for accessing the new database
+- name: POSTGRESQLIMPORT_DB_USER set fact from env if possible
+  set_fact:
+    POSTGRESQLIMPORT_DB_USER: "{{ lookup('env', 'POSTGRESQLIMPORT_DB_USER') | default('') | trim }}"
+  when: lookup('env', 'POSTGRESQLIMPORT_DB_USER') | default('', true) | trim != ''
+- name: POSTGRESQLIMPORT_DB_USER prompt user input if unset
+  pause:
+    prompt: "SET POSTGRESQLIMPORT_DB_USER"
+    echo: yes
+  register: input
+  when: POSTGRESQLIMPORT_DB_USER is not defined
+- name: Set POSTGRESQLIMPORT_DB_USER fact from user input
+  set_fact:
+    POSTGRESQLIMPORT_DB_USER: "{{ input.user_input | default('') | trim }}"
+  when: POSTGRESQLIMPORT_DB_USER is not defined
+
+# POSTGRESQLIMPORT_DB_USER_PASSWORD
+# The PostgreSQL password for the new user
+- name: POSTGRESQLIMPORT_DB_USER_PASSWORD set fact from env if possible
+  set_fact:
+    POSTGRESQLIMPORT_DB_USER_PASSWORD: "{{ lookup('env', 'POSTGRESQLIMPORT_DB_USER_PASSWORD') | default('') | trim }}"
+  when: lookup('env', 'POSTGRESQLIMPORT_DB_USER_PASSWORD') | default('', true) | trim != ''
+- name: POSTGRESQLIMPORT_DB_USER_PASSWORD prompt user input if unset
+  pause:
+    prompt: "SET POSTGRESQLIMPORT_DB_USER_PASSWORD"
+    echo: yes
+  register: input
+  when: POSTGRESQLIMPORT_DB_USER_PASSWORD is not defined
+- name: Set POSTGRESQLIMPORT_DB_USER_PASSWORD fact from user input
+  set_fact:
+    POSTGRESQLIMPORT_DB_USER_PASSWORD: "{{ input.user_input | default('') | trim }}"
+  when: POSTGRESQLIMPORT_DB_USER_PASSWORD is not defined
+
+# POSTGRESQLIMPORT_DB_TMP_FILEPATH
+# The filepath on the local system where a pg_dump file can be found to import
+- name: POSTGRESQLIMPORT_DB_TMP_FILEPATH set fact from env if possible
+  set_fact:
+    POSTGRESQLIMPORT_DB_TMP_FILEPATH: "{{ lookup('env', 'POSTGRESQLIMPORT_DB_TMP_FILEPATH') | default('') | trim }}"
+  when: lookup('env', 'POSTGRESQLIMPORT_DB_TMP_FILEPATH') | default('', true) | trim != ''
+- name: POSTGRESQLIMPORT_DB_TMP_FILEPATH prompt user input if unset
+  pause:
+    prompt: "SET POSTGRESQLIMPORT_DB_TMP_FILEPATH"
+    echo: yes
+  register: input
+  when: POSTGRESQLIMPORT_DB_TMP_FILEPATH is not defined
+- name: Set POSTGRESQLIMPORT_DB_TMP_FILEPATH fact from user input
+  set_fact:
+    POSTGRESQLIMPORT_DB_TMP_FILEPATH: "{{ input.user_input | default('') | trim }}"
+  when: POSTGRESQLIMPORT_DB_TMP_FILEPATH is not defined
+
+
+###############################################################################
+############################ ROLE IMPLEMENTATION ##############################
+###############################################################################
+
+# Task Prep: Ensure ansible-remote writable and get PostgreSQL version
+- name: Ensure ansible-remote directory exists with correct permissions
+  file:
+    path: /tmp/ansible-remote
+    state: directory
+    mode: '0777'
+  become: yes 
+
+# Task to get the PostgreSQL version
+- name: Get PostgreSQL major version
+  shell: |
+    psql --version | awk '{print $3}' | cut -d. -f1 
+  register: postgresql_version_output
+  become: yes 
+
+- name: Debug PostgreSQL version output
+  debug:
+    msg: "PostgreSQL version major: {{ postgresql_version_output.stdout }}"
+
+- name: Set PostgreSQL version fact
+  set_fact:
+    POSTGRESQL_VERSION: "{{ postgresql_version_output.stdout }}"
+
+# Step 1: Drop the PostgreSQL database if it exists
+- name: Drop the "{{ POSTGRESQLIMPORT_DB_NAME }}" database if it exists
+  postgresql_db:
+    name: "{{ POSTGRESQLIMPORT_DB_NAME }}"
+    state: absent
+  become: yes
+  become_user: postgres
+
+# Step 2: Create the new PostgreSQL database
+- name: Create {{ POSTGRESQLIMPORT_DB_NAME }} PostgreSQL database
+  postgresql_db:
+    name: "{{ POSTGRESQLIMPORT_DB_NAME }}"
+  become: yes
+  become_user: postgres
+
+# Step 2: Create PostgreSQL user account with full access to database
+- name: Create user with all database privileges on db
+  postgresql_user:
+    db: "{{ POSTGRESQLIMPORT_DB_NAME }}"
+    name: "{{ POSTGRESQLIMPORT_DB_USER }}"
+    password: "{{ POSTGRESQLIMPORT_DB_USER_PASSWORD }}"
+    state: present
+    expires: infinity
+  environment:
+    PGOPTIONS: "-c password_encryption=scram-sha-256"
+  become: yes
+  become_user: postgres
+
+- name: Add pg_hba entry for default user
+  community.postgresql.postgresql_pg_hba:
+    dest: /etc/postgresql/{{ POSTGRESQL_VERSION }}/main/pg_hba.conf
+    contype: host
+    databases: "{{ POSTGRESQLIMPORT_DB_NAME }}"
+    method: scram-sha-256
+    users: "{{ POSTGRESQLIMPORT_DB_USER }}"
+    source: all
+    create: yes
+  become: yes
+  become_user: postgres
+
+# Step 4: Copy database dump file to server
+- name: Copy database dump file to server
+  copy:
+    src: "{{ POSTGRESQLIMPORT_DB_TMP_FILEPATH }}"
+    dest: /tmp/{{ POSTGRESQLIMPORT_DB_NAME }}.sql
+    mode: '0600'
+    owner: postgres
+    group: postgres
+  become: yes
+
+# Step 5: Import the database dump into "{{ POSTGRESQLIMPORT_DB_NAME }}"
+- name: Import the database dump into "{{ POSTGRESQLIMPORT_DB_NAME }}"
+  shell:
+    cmd: >
+      PGPASSWORD='{{ POSTGRESQLEXPORT_DB_USER_PASSWORD }}' psql 
+      -U postgres 
+      -d "{{ POSTGRESQLIMPORT_DB_NAME }}"
+      -f "/tmp/{{ POSTGRESQLIMPORT_DB_NAME }}.sql"
+  become: yes
+  become_user: postgres
+
+# Step 6: Delete temporary files
+- name: Delete /tmp/postgres_dump.sql file
+  file:
+    path: /tmp/{{ POSTGRESQLIMPORT_DB_NAME }}.sql
+    state: absent
+  become: yes
+
+- name: Remove ansible-remote directory
+  file:
+    path: /tmp/ansible-remote
+    state: absent
+  become: yes
